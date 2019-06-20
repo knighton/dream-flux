@@ -3,7 +3,7 @@ import torch
 from torch.nn import functional as F
 from torch.nn import Parameter as P
 
-from .model import Model
+from .tick_model import TickModel
 from .util import sharded_binary_cross_entropy
 
 
@@ -69,7 +69,7 @@ class Info(object):
         return ''.join(map(lambda line: line + '\n', lines))
 
 
-class GANGraphProber(Model):
+class GANGraphProber(TickModel):
     def __init__(self, in_height, in_width, out_classes, embed_dim,
                  inputs_per_neuron, outputs_per_neuron, num_neurons, latent_dim,
                  ticks_per_sample, graph_optimizer, g, g_optimizer, d, d_optimizer):
