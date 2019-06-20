@@ -31,13 +31,11 @@ class DefaultGANGraphClassifier(GANGraphClassifier):
                  ticks_per_sample):
         graph_optimizer = Adam
 
-        a, b, c, d, e = int_interpolate(latent_dim, inputs_per_neuron, 5)
+        a, b, c, d = int_interpolate(latent_dim, inputs_per_neuron, 4)
         g_model = nn.Sequential(
             GANBlock(num_neurons, a, b),
             GANBlock(num_neurons, b, c),
-            GANBlock(num_neurons, c, d),
-            ShardedLinear(num_neurons, d, e),
-            InstanceNorm(),
+            ShardedLinear(num_neurons, c, d),
             nn.Tanh(),
         )
         g_optimizer = Adam
