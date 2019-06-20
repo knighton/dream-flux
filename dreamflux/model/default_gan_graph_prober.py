@@ -34,10 +34,11 @@ class DefaultGANGraphProber(GANGraphProber):
                  ticks_per_sample):
         graph_optimizer = Adam
 
-        a, b, c = int_interpolate(latent_dim, inputs_per_neuron, 3)
+        a, b, c, d = int_interpolate(latent_dim, inputs_per_neuron, 4)
         g_model = nn.Sequential(
             GANBlock(num_neurons, a, b),
-            ShardedLinear(num_neurons, b, c),
+            GANBlock(num_neurons, b, c),
+            ShardedLinear(num_neurons, c, d),
             nn.Sigmoid(),
         )
         g_optimizer = Adam
