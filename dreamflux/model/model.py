@@ -115,16 +115,13 @@ class Model(nn.Module):
         title = 'Epoch %d' % epoch
         bar = '-' * len(title)
 
-        print()
         print('    %s' % title)
         print('    %s' % bar)
         print()
         print('Train:')
         print(t.to_text())
-        print()
         print('Val:')
         print(v.to_text())
-        print()
 
     def fit(self, train_loader, val_loader, num_epochs, train_batches_per_epoch,
             val_batches_per_epoch, use_cuda, use_tqdm):
