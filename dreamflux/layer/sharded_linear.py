@@ -2,6 +2,9 @@ import torch
 from torch import nn
 from torch.nn import Parameter as P
 
+from .flatten import Flatten
+from .reshape import Reshape
+
 
 class ShardedLinear(nn.Module):
     def __init__(self, shard_dim, shard_in_dim, shard_out_dim):
@@ -19,3 +22,12 @@ class ShardedLinear(nn.Module):
         x = x + self.pre_bias
         x = torch.einsum('nis,ios->nos', [x, self.kernel])
         return x + self.post_bias
+
+
+class ShardedLinear(nn.Sequential):
+    def __init__(self, shard_dim, shard_in_dim, shard_out_dim):
+        super().__init__(
+            Flatten(),
+            nn.Linear(shard_in_dim * shard_dim, shard_out_dim * shard_dim),
+            Reshape(shard_out_dim, shard_dim),
+        )
