@@ -91,7 +91,7 @@ class GANGraphProber(Model):
         # State (sent to next tick).
         #
         # - Activations (num neurons).
-        self.register_buffer('activations', torch.randn(num_neurons))
+        self.register_buffer('activations', torch.rand(num_neurons))
 
         # Graph (ie, embeddings).
         #
@@ -107,10 +107,12 @@ class GANGraphProber(Model):
             embed_dim, outputs_per_neuron, num_neurons))
         self.neuron_sources = P(torch.randn(
             embed_dim, inputs_per_neuron, num_neurons))
-        self.output_sources = P(torch.randn(
-            embed_dim, inputs_per_neuron, out_classes))
         parameters = self.input_sinks, self.neuron_sinks, self.neuron_sources
         self.graph_optimizer = graph_optimizer(parameters)
+
+        self.output_sources = P(torch.randn(
+            embed_dim, inputs_per_neuron, out_classes))
+        self.clf_optimizer = graph_optimizer([self.output_sources])
 
         # Neurons (ie, a sharded GAN).
         #
@@ -123,9 +125,11 @@ class GANGraphProber(Model):
 
     @classmethod
     def make_input_sinks(cls, in_height, in_width, embed_dim):
+        return torch.randn(embed_dim, in_height * in_width)
+
         assert 2 <= embed_dim
 
-        ones = torch.ones(embed_dim - 2, in_height * in_width)
+        ones = torch.randn(embed_dim - 2, in_height * in_width) * 0.05 + 1
 
         y = torch.arange(in_height).type(torch.float) / (in_height - 1)
         y = y * 2 - 1
@@ -142,18 +146,31 @@ class GANGraphProber(Model):
         return torch.cat([ones, y, x], 0)
 
     def project(self, values, from_locations, to_locations):
+        # Relate the source and destination vectors.
         from_ = from_locations.view(self.embed_dim, -1)
         to = to_locations.view(self.embed_dim, -1)
         io = torch.einsum('ei,eo->io', [from_, to])
+
+        # Normalize scores to a bell curve around zero of sources per destination.
         io = io - io.mean(1, keepdim=True)
-        io = io / io.std(1, keepdim=True)
+        io = io / (io.std(1, keepdim=True) + 1e-3)
+
+        # Apply a smooth cutoff to the scores (-3, 3).
+        io = (io / 3).tanh() * 3
+
+        # Translate that to weights (0.05, 20).
         io = io.exp()
-        io = io / io.sum(1, keepdim=True)
 
+        # Make those weights fractions (of sources per destination).
+        io = io / (io.sum(1, keepdim=True) + 1e-3)
+
+        # Unpack shapes.
         io = io.view(self.outputs_per_neuron, self.in_dim + self.num_neurons,
-                     self.inputs_per_neuron, self.num_neurons + self.out_classes)
+                     self.inputs_per_neuron, -1)#self.num_neurons + self.out_classes)
 
-        return torch.einsum('a,oaib->ib', [values, io])
+        # Do the projection.
+        x = torch.einsum('a,oaib->ib', [values, io])
+        return x.sigmoid()
 
     def train_graph(self, x, y, info):
         t0 = time()
@@ -162,36 +179,41 @@ class GANGraphProber(Model):
 
         self.graph_optimizer.zero_grad()
 
-        x = torch.cat([x.view(-1), self.activations], 0)
+        inputs = F.dropout(x.view(-1), 0.8)
+        inputs = inputs / (inputs.max() + 1e-3)
+        activ_at_sinks = torch.cat([inputs, self.activations], 0)
         sinks = torch.cat([self.input_sinks, self.neuron_sinks], 2)
 
-        sources = torch.cat([self.neuron_sources, self.output_sources], 2)
-        x = self.project(x, sinks, sources)
+        activ_at_sources = self.project(activ_at_sinks, sinks, self.neuron_sources)
 
-        loss = x.std(0).mean() * 10
-        loss.backward(retain_graph=True)
+        loss = activ_at_sources.std(0).mean()
+        loss.backward()
+        self.graph_optimizer.step()
         info.graph_std_loss = loss.item()
 
-        y_pred = x[:, -self.out_classes:]
+        self.clf_optimizer.zero_grad()
+        y_pred = self.project(activ_at_sinks.detach(), sinks.detach(),
+                              self.output_sources)
         y_pred = y_pred.mean(0, keepdim=True)
         loss = F.cross_entropy(y_pred, y)
         loss.backward()
+        self.clf_optimizer.step()
         info.graph_clf_loss = loss.item()
 
         info.graph_clf_acc = (y_pred[0].argmax() == y).type(torch.float32).item()
 
-        self.graph_optimizer.step()
-
         info.graph_time = time() - t0
 
-        return x[:, :-self.out_classes].detach(), y_pred.detach()
+        return activ_at_sources.detach(), y_pred.detach()
 
     def validate_graph(self, x, y, info):
         t0 = time()
 
         assert x.shape == (1, self.in_height, self.in_width)
 
-        x = torch.cat([x.view(-1), self.activations], 0)
+        inputs = F.dropout(x.view(-1), 0.8)
+        inputs = inputs / (inputs.max() + 1e-3)
+        x = torch.cat([inputs, self.activations], 0)
         sinks = torch.cat([self.input_sinks, self.neuron_sinks], 2)
 
         sources = torch.cat([self.neuron_sources, self.output_sources], 2)
@@ -214,7 +236,9 @@ class GANGraphProber(Model):
     def forward_graph(self, x):
         assert x.shape == (1, self.in_height, self.in_width)
 
-        x = torch.cat([x.view(-1), self.activations], 0)
+        inputs = F.dropout(x.view(-1), 0.8)
+        inputs = inputs / (inputs.max() + 1e-3)
+        x = torch.cat([inputs, self.activations], 0)
         sinks = torch.cat([self.input_sinks, self.neuron_sinks], 2)
 
         sources = torch.cat([self.neuron_sources, self.output_sources], 2)

@@ -7,12 +7,15 @@ from .util import int_interpolate
 
 
 class GANBlock(nn.Sequential):
-    def __init__(self, shard_dim, shard_in_dim, shard_out_dim):
-        super().__init__(
+    def __init__(self, shard_dim, shard_in_dim, shard_out_dim, drop=False):
+        layers = [
             ShardedLinear(shard_dim, shard_in_dim, shard_out_dim),
             InstanceNorm(),
             nn.ReLU(),
-        )
+        ]
+        if drop:
+            layers.append(nn.Dropout())
+        super().__init__(*layers)
 
 
 class ClfBlock(nn.Sequential):
@@ -31,12 +34,11 @@ class DefaultGANGraphProber(GANGraphProber):
                  ticks_per_sample):
         graph_optimizer = Adam
 
-        a, b, c, d = int_interpolate(latent_dim, inputs_per_neuron, 4)
+        a, b, c = int_interpolate(latent_dim, inputs_per_neuron, 3)
         g_model = nn.Sequential(
             GANBlock(num_neurons, a, b),
-            GANBlock(num_neurons, b, c),
-            ShardedLinear(num_neurons, c, d),
-            nn.Tanh(),
+            ShardedLinear(num_neurons, b, c),
+            nn.Sigmoid(),
         )
         g_optimizer = Adam
 
