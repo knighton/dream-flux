@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from torch import nn
+from torch.nn import functional as F
 from tqdm import tqdm
 
 
@@ -41,6 +42,7 @@ def get_next_batch(each_mode_batch, use_cuda):
         y_true = y_true.cuda()
     if len(x.shape) == 3:
         x = x.unsqueeze(1)
+    x = F.max_pool2d(x, 2)
     return x, y_true
 
 
