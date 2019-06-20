@@ -3,6 +3,7 @@ from torch.utils.data import DataLoader
   
 from .dataset.mnist import load_mnist
 from .model.default_gan_graph_clf import DefaultGANGraphClassifier
+from .model.default_gan_graph_prober import DefaultGANGraphProber
 
 
 def parse_flags():
@@ -18,12 +19,12 @@ def parse_flags():
     a.add_argument('--tqdm', type=int, default=1)
 
     # Model dimensions.
-    a.add_argument('--model', type=str, default='clf')
-    a.add_argument('--embed_dim', type=int, default=256)
-    a.add_argument('--inputs_per_neuron', type=int, default=32)
+    a.add_argument('--model', type=str, default='prober')
+    a.add_argument('--embed_dim', type=int, default=512)
+    a.add_argument('--inputs_per_neuron', type=int, default=16)
     a.add_argument('--outputs_per_neuron', type=int, default=8)
-    a.add_argument('--num_neurons', type=int, default=32)
-    a.add_argument('--latent_dim', type=int, default=16)
+    a.add_argument('--num_neurons', type=int, default=16)
+    a.add_argument('--latent_dim', type=int, default=8)
     a.add_argument('--ticks_per_sample', type=int, default=5)
 
     return a.parse_args()
@@ -36,6 +37,7 @@ def main(flags):
 
     model_class = {
         'clf': DefaultGANGraphClassifier,
+        'prober': DefaultGANGraphProber,
     }[flags.model]
 
     train_dataset, val_dataset = load_mnist()
