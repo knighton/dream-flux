@@ -7,7 +7,7 @@ from tqdm import tqdm
 from .model import Model
 
 
-class Model(nn.Module):
+class TickModel(Model):
     def train_on_tick(self, x, y):
         raise NotImplementedError
 
