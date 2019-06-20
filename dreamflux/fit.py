@@ -17,10 +17,10 @@ def parse_flags():
     a.add_argument('--cuda', type=int, default=1)
     a.add_argument('--tqdm', type=int, default=1)
 
-    a.add_argument('--embed_dim', type=int, default=128)
+    a.add_argument('--embed_dim', type=int, default=256)
     a.add_argument('--inputs_per_neuron', type=int, default=16)
     a.add_argument('--outputs_per_neuron', type=int, default=16)
-    a.add_argument('--num_neurons', type=int, default=256)
+    a.add_argument('--num_neurons', type=int, default=64)
     a.add_argument('--latent_dim', type=int, default=4)
     a.add_argument('--ticks_per_sample', type=int, default=5)
 

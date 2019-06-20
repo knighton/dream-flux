@@ -1,3 +1,4 @@
+import json
 import numpy as np
 from time import time
 import torch
@@ -26,9 +27,9 @@ def sharded_binary_cross_entropy(pred, true):
 
 
 class Info(object):
-    fields = 'graph_time', 'graph_loss', 'd_time', 'd_pred_mean', 'd_pred_std', \
-        'd_real_loss', 'd_fake_loss', 'g_time', 'g_loss', 'clf_time', \
-        'clf_loss', 'clf_acc'
+    fields = 'graph_time', 'graph_loss', 'd_time', 'd_real_loss', 'd_real_isreal', \
+        'd_fake_loss', 'd_fake_isreal', 'g_time', 'g_loss', 'clf_time', 'clf_loss', \
+        'clf_acc'
 
     @classmethod
     def mean(cls, infos):
@@ -53,10 +54,10 @@ class Info(object):
         self.graph_loss = None
 
         self.d_time = None
-        self.d_pred_mean = None
-        self.d_pred_std = None
         self.d_real_loss = None
+        self.d_real_isreal = None
         self.d_fake_loss = None
+        self.d_fake_isreal = None
 
         self.g_time = None
         self.g_loss = None
@@ -64,6 +65,30 @@ class Info(object):
         self.clf_time = None
         self.clf_loss = None
         self.clf_acc = None
+
+    def dump(self):
+        return self.__dict__
+
+    def to_text(self):
+        lines = [
+            '* Time',
+            '  * Graph                %5.1fms' % (1000 * self.graph_time,),
+            '  * Discriminator        %5.1fms' % (1000 * self.d_time,),
+            '  * Generator            %5.1fms' % (1000 * self.g_time,),
+            '  * Classifier           %5.1fms' % (1000 * self.clf_time,),
+            '* Loss',
+            '  * Graph                %7.3f' % self.graph_loss,
+            '  * Discriminator (real) %7.3f' % self.d_real_loss,
+            '  * Discriminator (fake) %7.3f' % self.d_fake_loss,
+            '  * Generator            %7.3f' % self.g_loss,
+            '  * Classifier           %7.3f' % self.clf_loss,
+            '* Is real',
+            '  * Discriminator (real) %7.3f' % self.d_real_isreal,
+            '  * Discriminator (fake) %7.3f' % self.d_fake_isreal,
+            '* Accuracy',
+            '  * Classifier           %6.2f%%' % (100 * self.clf_acc,),
+        ]
+        return ''.join(map(lambda line: line + '\n', lines))
 
 
 def each(xx):
@@ -205,14 +230,19 @@ class BaseModel(nn.Module):
 
         return torch.cat([ones, y, x], 0)
 
-    @classmethod
-    def project(cls, values, from_locations, to_locations):
-        x = torch.einsum('esi,eso->sio', [from_locations, to_locations])
-        x = x - x.mean(1, keepdim=True)
-        x = x / x.std(1, keepdim=True)
-        x = x.exp()
-        heatmap = x / x.sum(1, keepdim=True)
-        return torch.einsum('i,sio->so', [values, heatmap])
+    def project(self, values, from_locations, to_locations):
+        from_ = from_locations.view(self.embed_dim, -1)
+        to = to_locations.view(self.embed_dim, -1)
+        io = torch.einsum('ei,eo->io', [from_, to])
+        io = io - io.mean(1, keepdim=True)
+        io = io / io.std(1, keepdim=True)
+        io = io.exp()
+        io = io / io.sum(1, keepdim=True)
+
+        io = io.view(self.outputs_per_neuron, self.in_dim + self.num_neurons,
+                     self.inputs_per_neuron, self.num_neurons)
+
+        return torch.einsum('a,oaib->ib', [values, io])
 
     def train_graph(self, x, info):
         t0 = time()
@@ -226,7 +256,7 @@ class BaseModel(nn.Module):
 
         x = self.project(x, locations, self.neuron_sources)
 
-        loss = x.std(1).mean()
+        loss = x.std(0).mean()
         loss.backward()
         self.graph_optimizer.step()
 
@@ -270,17 +300,20 @@ class BaseModel(nn.Module):
         real = x.unsqueeze(0)
         target = torch.full((1, 1, self.num_neurons), 1, device=x.device)
         is_real = self.d(real)
-        dr_loss = sharded_binary_cross_entropy(is_real, target).mean()
-        dr_loss.backward()
-
+        loss = sharded_binary_cross_entropy(is_real, target).mean()
+        loss.backward()
         ret = is_real.detach()
+        info.d_real_loss = loss.item()
+        info.d_real_isreal = is_real.detach().mean().item()
 
         latent = torch.randn(1, self.latent_dim, self.num_neurons, device=x.device)
         fake = self.g(latent)
         target.fill_(0)
         is_real = self.d(fake.detach())
-        df_loss = sharded_binary_cross_entropy(is_real, target).mean()
-        df_loss.backward()
+        loss = sharded_binary_cross_entropy(is_real, target).mean()
+        loss.backward()
+        info.d_fake_loss = loss.item()
+        info.d_fake_isreal = is_real.detach().mean().item()
 
         self.d_optimizer.step()
 
@@ -289,18 +322,14 @@ class BaseModel(nn.Module):
         self.g_optimizer.zero_grad()
         target.fill_(1)
         is_real = self.d(fake)
-        g_loss = sharded_binary_cross_entropy(is_real, target).mean()
-        g_loss.backward()
+        loss = sharded_binary_cross_entropy(is_real, target).mean()
+        loss.backward()
         self.g_optimizer.step()
+        info.g_loss = loss.item()
 
         t2 = time()
         info.d_time = t1 - t0
-        info.d_pred_mean = ret.mean()
-        info.d_pred_std = ret.std()
-        info.d_real_loss = dr_loss.item()
-        info.d_fake_loss = df_loss.item()
         info.g_time = t2 - t1
-        info.g_loss = g_loss.item()
 
         return ret.squeeze()
 
@@ -308,32 +337,34 @@ class BaseModel(nn.Module):
         t0 = time()
 
         real = x.unsqueeze(0)
-        target = torch.full((1, self.num_neurons), 1, device=x.device)
+        target = torch.full((1, 1, self.num_neurons), 1, device=x.device)
         is_real = self.d(real)
-        dr_loss = sharded_binary_cross_entropy(is_real, target).mean()
-
+        loss = sharded_binary_cross_entropy(is_real, target).mean()
         ret = is_real.detach()
+        info.d_real_loss = loss.item()
+        info.d_real_isreal = is_real.detach().mean().item()
 
         latent = torch.randn(1, self.latent_dim, self.num_neurons, device=x.device)
         fake = self.g(latent)
         target.fill_(0)
         is_real = self.d(fake.detach())
-        df_loss = sharded_binary_cross_entropy(is_real, target).mean()
+        loss = sharded_binary_cross_entropy(is_real, target).mean()
+        info.d_fake_loss = loss.item()
+        info.d_fake_isreal = is_real.detach().mean().item()
+
+        self.d_optimizer.step()
 
         t1 = time()
 
         target.fill_(1)
         is_real = self.d(fake)
-        g_loss = sharded_binary_cross_entropy(is_real, target).mean()
+        loss = sharded_binary_cross_entropy(is_real, target).mean()
+        self.g_optimizer.step()
+        info.g_loss = loss.item()
 
         t2 = time()
         info.d_time = t1 - t0
-        info.d_pred_mean = ret.mean()
-        info.d_pred_std = ret.std()
-        info.d_real_loss = dr_loss.item()
-        info.d_fake_loss = df_loss.item()
         info.g_time = t2 - t1
-        info.g_loss = g_loss.item()
 
         return ret.squeeze()
 
@@ -349,7 +380,7 @@ class BaseModel(nn.Module):
         self.clf_optimizer.step()
         info.clf_time = time() - t0
         info.clf_loss = loss.item()
-        info.clf_acc = (y_pred.argmax() == y_true).type(torch.float32)
+        info.clf_acc = (y_pred.argmax() == y_true).type(torch.float32).item()
         return y_pred.detach()
 
     def validate_classifier(self, x, y_true, info):
@@ -358,7 +389,7 @@ class BaseModel(nn.Module):
         loss = F.cross_entropy(y_pred, y_true)
         info.clf_time = time() - t0
         info.clf_loss = loss.item()
-        info.clf_acc = (y_pred.argmax() == y_true).type(torch.float32)
+        info.clf_acc = (y_pred.argmax() == y_true).type(torch.float32).item()
         return y_pred.detach()
 
     def forward_classifier(self, x):
@@ -460,9 +491,31 @@ class BaseModel(nn.Module):
         return Info.mean(train_infos), Info.mean(val_infos)
 
     def log(self, epoch, t, v):
-        t = 100 * float(t.clf_acc)
-        v = 100 * float(v.clf_acc)
-        print('%6d %6.2f%% %6.2f%%' % (epoch, t, v))
+        # print('%6d %6.2f%% %6.2f%%' % (epoch, 100 * t.clf_acc, 100 * v.clf_acc))
+
+        """
+        x = {
+            'epoch': epoch,
+            'train': t.dump(),
+            'val': v.dump(),
+        }
+        line = '%s\n' % json.dumps(x, sort_keys=True)
+        print(line)
+        """
+
+        title = 'Epoch %d' % epoch
+        bar = '-' * len(title)
+
+        print()
+        print('    %s' % title)
+        print('    %s' % bar)
+        print()
+        print('Train:')
+        print(t.to_text())
+        print()
+        print('Val:')
+        print(v.to_text())
+        print()
 
     def fit(self, train_loader, val_loader, num_epochs, train_batches_per_epoch,
             val_batches_per_epoch, use_cuda, use_tqdm):
@@ -498,12 +551,13 @@ class Model(BaseModel):
                  ticks_per_sample):
         graph_optimizer = Adam
 
-        a, b, c, d = int_interpolate(latent_dim, inputs_per_neuron, 4)
+        a, b, c, d, e = int_interpolate(latent_dim, inputs_per_neuron, 5)
         g_model = nn.Sequential(
             GANBlock(num_neurons, a, b),
             GANBlock(num_neurons, b, c),
-            ShardedLinear(num_neurons, c, d),
-            nn.BatchNorm1d(d),
+            GANBlock(num_neurons, c, d),
+            ShardedLinear(num_neurons, d, e),
+            InstanceNorm(),
             nn.Tanh(),
         )
         g_optimizer = Adam
