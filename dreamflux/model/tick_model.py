@@ -8,6 +8,10 @@ from .model import Model
 
 
 class TickModel(Model):
+    def __init__(self, ticks_per_sample):
+        super().__init__()
+        self.ticks_per_sample = ticks_per_sample
+
     def train_on_tick(self, x, y):
         raise NotImplementedError
 
