@@ -50,26 +50,58 @@ class Conv(Model):
     def __init__(self, in_height, in_width, out_classes):
         super().__init__()
 
-        assert in_height == 14
-        assert in_width == 14
+        assert in_height == 28
+        assert in_width == 28
 
+        c = 16
         self.seq = nn.Sequential(
-            nn.Conv2d(1, 8, 3, 1, 0),
-            nn.BatchNorm2d(8),
+            # 28x28.
+            nn.Conv2d(1, c, 3, 1, 0),
+            nn.BatchNorm2d(c),
 
-            nn.MaxPool2d(2),
-
+            # 26x26.
             nn.ReLU(),
-            nn.Conv2d(8, 8, 3, 1, 0),
-            nn.BatchNorm2d(8),
+            nn.Conv2d(c, c, 3, 1, 0),
+            nn.BatchNorm2d(c),
 
+            # 24x24.
             nn.MaxPool2d(2),
+
+            # 12x12.
+            nn.ReLU(),
+            nn.Conv2d(c, c, 3, 1, 0),
+            nn.BatchNorm2d(c),
+
+            # 10x10.
+            nn.ReLU(),
+            nn.Conv2d(c, c, 3, 1, 0),
+            nn.BatchNorm2d(c),
+
+            # 8x8.
+            nn.MaxPool2d(2),
+
+            # 4x4.
+            nn.ReLU(),
+            nn.Conv2d(c, c, 3, 1, 1),
+            nn.BatchNorm2d(c),
+
+            # 4x4.
+            nn.ReLU(),
+            nn.Conv2d(c, c, 3, 1, 1),
+            nn.BatchNorm2d(c),
 
             Flatten(),
 
+            # 16 * c.
             nn.ReLU(),
             nn.Dropout(),
-            nn.Linear(4 * 8, out_classes),
+            nn.Linear(16 * c, 16 * c),
+            nn.BatchNorm1d(16 * c),
+
+            # 16 * c.
+            nn.ReLU(),
+            nn.Dropout(),
+            nn.Linear(16 * c, out_classes),
         )
 
         self.optimizer = Adam(self.seq.parameters())
@@ -84,7 +116,7 @@ class Conv(Model):
         self.optimizer.step()
         info.time = time() - t0
         info.loss = loss.item()
-        info.acc = (y_pred.max(0)[1] == y_true).type(torch.float).mean().item()
+        info.acc = (y_pred.max(1)[1] == y_true).type(torch.float).mean().item()
         return y_pred.detach(), info
 
     def validate_on_batch(self, x, y_true):
@@ -94,7 +126,7 @@ class Conv(Model):
         loss = F.cross_entropy(y_pred, y_true)
         info.time = time() - t0
         info.loss = loss.item()
-        info.acc = (y_pred.max(0)[1] == y_true).type(torch.float).mean().item()
+        info.acc = (y_pred.max(1)[1] == y_true).type(torch.float).mean().item()
         return y_pred.detach(), info
 
     def forward(self, x):

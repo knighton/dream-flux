@@ -18,8 +18,8 @@ def parse_flags():
 
 
 def main(flags):
-    in_height = 14
-    in_width = 14
+    in_height = 28
+    in_width = 28
     out_classes = 10
 
     model = Conv(in_height, in_width, out_classes)
