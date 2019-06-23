@@ -77,7 +77,7 @@ class GANGraphClassifier(TickModel):
                  inputs_per_neuron, outputs_per_neuron, num_neurons, latent_dim,
                  ticks_per_sample, graph_optimizer, g, g_optimizer, d, d_optimizer,
                  clf, clf_optimizer):
-        super().__init__()
+        super().__init__(ticks_per_sample)
 
         # Configuration.
         in_dim = in_height * in_width
