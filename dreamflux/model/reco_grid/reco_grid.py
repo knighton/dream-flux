@@ -33,29 +33,37 @@ class RecoGrid(TickModel):
         self.optimizer = Adam(self.model.parameters())
 
     def forward_on_tick(self, x):
-        return self.core(x)
+        return self.model(x, None)
 
     def train_on_tick(self, x, y_true):
         info = Info()
-        t0 = time()
         self.optimizer.zero_grad()
-        y_pred = self.model(x)
+        t0 = time()
+        y_pred = self.model(x, info)
         y_pred = y_pred.unsqueeze(0)
         loss = F.cross_entropy(y_pred, y_true)
+        t1 = time()
         loss.backward()
+        t2 = time()
         self.optimizer.step()
-        info.time = time() - t0
+        t3 = time()
+        info.time = t3 - t0
+        info.forward_time = t1 - t0
+        info.backward_time = t2 - t1
         info.loss = loss.item()
         info.acc = (y_pred.max(1)[1] == y_true).type(torch.float).mean().item()
-        return y_pred, info
+        return y_pred.detach(), info
 
     def validate_on_tick(self, x, y_true):
         info = Info()
         t0 = time()
-        y_pred = self.model(x)
+        y_pred = self.model(x, info)
         y_pred = y_pred.unsqueeze(0)
         loss = F.cross_entropy(y_pred, y_true)
+        t1 = time()
         info.time = time() - t0
+        info.forward_time = t1 - t0
+        info.backward_time = 0
         info.loss = loss.item()
         info.acc = (y_pred.max(1)[1] == y_true).type(torch.float).mean().item()
         return y_pred.detach(), info

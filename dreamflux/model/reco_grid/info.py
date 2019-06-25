@@ -1,5 +1,5 @@
 class Info(object):
-    fields = 'time', 'loss', 'acc'
+    fields = 'time', 'forward_time', 'backward_time', 'input_time', 'core_time', 'core_spread_time', 'core_remix_time', 'output_time', 'loss', 'acc'
 
     @classmethod
     def mean(cls, infos):
@@ -21,6 +21,13 @@ class Info(object):
 
     def __init__(self):
         self.time = None
+        self.forward_time = None
+        self.backward_time = None
+        self.input_time = None
+        self.core_time = None
+        self.core_spread_time = None
+        self.core_remix_time = None
+        self.output_time = None
         self.loss = None
         self.acc = None
 
@@ -29,8 +36,15 @@ class Info(object):
 
     def to_text(self):
         lines = [
-            '* Time     %5.1fms' % (1000 * self.time,),
-            '* Loss     %7.3f' % self.loss,
-            '* Accuracy %6.2f%%' % (100 * self.acc,),
+            '* Time        %5.1fms' % (1000 * self.time,),
+            '  * Forawrd   %6.1fms' % (1000 * self.forward_time,),
+            '  * Backard   %6.1fms' % (1000 * self.backward_time,),
+            '  * Input     %6.1fms' % (1000 * self.input_time,),
+            '  * Core      %6.1fms' % (1000 * self.core_time,),
+            '    * Spread  %6.1fms' % (1000 * self.core_spread_time,),
+            '    * Remix   %6.1fms' % (1000 * self.core_remix_time,),
+            '  * Output    %6.1fms' % (1000 * self.output_time,),
+            '* Loss        %7.3f' % self.loss,
+            '* Accuracy    %6.2f%%' % (100 * self.acc,),
         ]
         return ''.join(map(lambda line: line + '\n', lines))

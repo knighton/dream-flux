@@ -1,3 +1,4 @@
+from time import time
 import torch
 from torch import nn
 from torch.nn import Parameter as P
@@ -63,10 +64,15 @@ class Core(nn.Module):
         fractions = dot_products_to_fractions(dot_products, soft_clip, sharpness)
         return torch.einsum('nev,nv->ne', [self.vocab, fractions])
 
-    def forward(self, x):
+    def forward(self, x, info):
         memes_from_input = x
         x = torch.cat([memes_from_input, self.memes_from_last_tick], 0)
+        t0 = time()
         x = self.spread(x)
+        t1 = time()
         x = self.remix(x)
+        t2 = time()
+        info.core_spread_time = t1 - t0
+        info.core_remix_time = t2 - t1
         self.memes_from_last_tick = x.detach()
         return x
